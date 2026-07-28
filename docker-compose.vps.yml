@@ -17,11 +17,21 @@ services:
       - "${API_PORT:-2785}:2785"
     env_file: .env
     environment:
+      # ponytail: force VPS stack — don't rely on .env.example (sqlite/localhost)
       PORT: 2785
+      DATABASE_TYPE: postgres
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
+      DATABASE_NAME: ${DATABASE_NAME:-openwa}
+      DATABASE_USERNAME: ${DATABASE_USERNAME:-openwa}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:?Set DATABASE_PASSWORD in .env}
+      DATABASE_SYNCHRONIZE: "false"
+      REDIS_ENABLED: "true"
+      QUEUE_ENABLED: "true"
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      SESSION_DATA_PATH: /app/data/sessions
+      STORAGE_LOCAL_PATH: /app/data/media
     volumes:
       - openwa-data:/app/data
     depends_on:
