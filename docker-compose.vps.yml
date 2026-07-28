@@ -1,13 +1,15 @@
 # VPS stack: OpenWA API + PostgreSQL + Redis
-# Frontend (Vercel) calls this API directly — set CORS_ORIGINS to your Vercel URL.
+# Pull-only hosts (Hostinger etc.) need the GHCR image — built by .github/workflows/publish-vps-image.yml
+# Local/SSH: docker compose -f docker-compose.vps.yml up -d --build
 #
 # Setup:
 #   cp .env.vps.example .env
-#   # edit .env (passwords, CORS_ORIGINS)
-#   docker compose -f docker-compose.vps.yml up -d --build
+#   # edit .env (DATABASE_PASSWORD, CORS_ORIGINS)
+#   docker compose -f docker-compose.vps.yml up -d
 
 services:
   openwa-api:
+    image: ghcr.io/vivekratr/openwa-api:latest
     build:
       context: .
       dockerfile: Dockerfile
