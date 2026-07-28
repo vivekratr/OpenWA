@@ -15,7 +15,8 @@ services:
     restart: unless-stopped
     ports:
       - "${API_PORT:-2785}:2785"
-    env_file: .env
+    env_file:
+      - .env
     environment:
       # ponytail: force VPS stack — don't rely on .env.example (sqlite/localhost)
       PORT: 2785
