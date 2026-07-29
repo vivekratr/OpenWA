@@ -6,8 +6,11 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, In, DataSource, Not, IsNull } from 'typeorm';
+import * as fs from 'fs';
+import * as path from 'path';
 import { Session, SessionStatus } from './entities/session.entity';
 import { CreateSessionDto } from './dto';
 import { EngineFactory } from '../../engine/engine.factory';
@@ -46,6 +49,7 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
     private readonly eventsGateway: EventsGateway,
     private readonly webhookService: WebhookService,
     private readonly hookManager: HookManager,
+    private readonly configService: ConfigService,
   ) {}
 
   /**
@@ -186,17 +190,39 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
     const session = await this.findOne(id);
     const normalized = this.normalizePhone(phoneNumber);
 
-    await this.sessionRepository.update(id, {
-      config: { ...(session.config || {}), pairWithPhoneNumber: normalized },
-    });
-
-    const updated = await this.findOne(id);
-
     if (this.engines.has(id)) {
       await this.stop(id);
     }
 
-    return this.start(id);
+    this.pairingCodes.delete(id);
+    this.clearBrowserAuth(session.name);
+
+    const existingConfig =
+      typeof session.config === 'string'
+        ? (JSON.parse(session.config) as Record<string, unknown>)
+        : (JSON.parse(JSON.stringify(session.config ?? {})) as Record<string, unknown>);
+
+    await this.sessionRepository.update(id, {
+      config: { ...existingConfig, pairWithPhoneNumber: normalized },
+    });
+
+    const updated = await this.findOne(id);
+    return this.start(updated.id);
+  }
+
+  private clearBrowserAuth(sessionName: string): void {
+    const sessionDataPath =
+      this.configService.get<string>('engine.sessionDataPath') ?? './data/sessions';
+    const authDir = path.join(path.resolve(sessionDataPath), `session-${sessionName}`);
+
+    if (!fs.existsSync(authDir)) {
+      return;
+    }
+
+    fs.rmSync(authDir, { recursive: true, force: true });
+    this.logger.log(`Cleared browser auth for session: ${sessionName}`, {
+      action: 'auth_cleared',
+    });
   }
 
   normalizePhone(phoneNumber: string): string {
@@ -273,18 +299,35 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
     return this.findOne(id);
   }
 
+  private resolvePairWithPhoneNumber(session: Session): string | undefined {
+    const fromConfig = (session.config as { pairWithPhoneNumber?: string } | null)?.pairWithPhoneNumber;
+    if (fromConfig) {
+      return fromConfig;
+    }
+
+    // Mobile-auth sessions are named with the phone number (e.g. 918208772095).
+    if (/^\d{10,15}$/.test(session.name)) {
+      return session.name;
+    }
+
+    return undefined;
+  }
+
   private async initializeEngine(id: string, session: Session): Promise<void> {
+    const pairWithPhoneNumber = this.resolvePairWithPhoneNumber(session);
+
     this.logger.log(`Initializing engine for session: ${session.name}`, {
       sessionId: id,
       action: 'engine_init',
       proxyEnabled: !!session.proxyUrl,
+      pairWithPhoneNumber: pairWithPhoneNumber ?? null,
     });
 
     const engine = this.engineFactory.create({
       sessionId: session.name,
       proxyUrl: session.proxyUrl || undefined,
       proxyType: session.proxyType || undefined,
-      pairWithPhoneNumber: (session.config as { pairWithPhoneNumber?: string } | null)?.pairWithPhoneNumber,
+      pairWithPhoneNumber,
     });
     this.engines.set(id, engine);
 

@@ -21,13 +21,7 @@ export class MobileAuthService {
       await this.sessionService.stop(session.id);
     }
 
-    const hasNeverConnected = !session.connectedAt;
-
-    if (hasNeverConnected) {
-      await this.sessionService.startWithPhone(session.id, phoneNumber);
-    } else {
-      await this.sessionService.start(session.id);
-    }
+    await this.sessionService.startWithPhone(session.id, phoneNumber);
 
     const updated = await this.sessionService.findOne(session.id);
 
