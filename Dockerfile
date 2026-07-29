@@ -63,8 +63,14 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install production dependencies only
-RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
+# sqlite3 needs native compile; --ignore-scripts skips dashboard postinstall
+RUN apt-get update && apt-get install -y python3 make g++ \
+    && npm ci --omit=dev --ignore-scripts \
+    && npm rebuild sqlite3 \
+    && apt-get purge -y python3 make g++ \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/* \
+    && npm cache clean --force
 
 # Copy built application from builder stage
 COPY --from=builder /app/dist ./dist
