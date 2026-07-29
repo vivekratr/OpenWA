@@ -9,7 +9,7 @@ export class SavedContacts1781000000000 implements MigrationInterface {
     if (isPostgres) {
       await queryRunner.query(
         `CREATE TABLE "saved_contacts" (
-          "id" varchar PRIMARY KEY NOT NULL,
+          "id" varchar PRIMARY KEY NOT NULL DEFAULT gen_random_uuid()::varchar,
           "session_id" varchar NOT NULL,
           "name" varchar NOT NULL,
           "phone" varchar NOT NULL,
