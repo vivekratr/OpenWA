@@ -225,6 +225,33 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
     });
   }
 
+  // ponytail: docker restart leaves Chromium singleton locks on the volume; safe to drop before launch
+  private clearStaleChromiumLocks(sessionName: string): void {
+    const sessionDataPath =
+      this.configService.get<string>('engine.sessionDataPath') ?? './data/sessions';
+    const authDir = path.join(path.resolve(sessionDataPath), `session-${sessionName}`);
+
+    if (!fs.existsSync(authDir)) {
+      return;
+    }
+
+    const lockNames = new Set(['SingletonLock', 'SingletonSocket', 'SingletonCookie']);
+    const walk = (dir: string): void => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(fullPath);
+          continue;
+        }
+        if (lockNames.has(entry.name)) {
+          fs.rmSync(fullPath, { force: true });
+        }
+      }
+    };
+
+    walk(authDir);
+  }
+
   normalizePhone(phoneNumber: string): string {
     return phoneNumber.replace(/\D/g, '');
   }
@@ -304,6 +331,7 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
     session: Session,
     pairWithPhoneNumber?: string,
   ): Promise<void> {
+    this.clearStaleChromiumLocks(session.name);
 
     this.logger.log(`Initializing engine for session: ${session.name}`, {
       sessionId: id,
@@ -320,7 +348,8 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
     });
     this.engines.set(id, engine);
 
-    await engine.initialize({
+    try {
+      await engine.initialize({
       onQRCode: (): void => {
         this.logger.log('QR code generated', {
           sessionId: id,
@@ -454,6 +483,15 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
         }
       },
     });
+    } catch (error) {
+      this.engines.delete(id);
+      try {
+        await engine.destroy();
+      } catch {
+        // already torn down
+      }
+      throw error;
+    }
 
     await this.updateStatus(id, SessionStatus.INITIALIZING);
   }
