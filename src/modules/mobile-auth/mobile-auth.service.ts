@@ -18,7 +18,15 @@ export class MobileAuthService {
     }
 
     if (this.sessionService.isActive(session.id)) {
+      if (await this.waitForReady(session.id, 45_000)) {
+        return { sessionId: session.id, status: SessionStatus.READY };
+      }
       await this.sessionService.stop(session.id);
+    }
+
+    if (session.connectedAt) {
+      const status = await this.restorePairedSession(session.id);
+      return { sessionId: session.id, status };
     }
 
     await this.sessionService.startWithPhone(session.id, phoneNumber);
@@ -30,11 +38,47 @@ export class MobileAuthService {
     }
 
     try {
-      const { pairingCode, status } = await this.waitForPairingCode(session.id, 15000);
-      return { sessionId: session.id, pairingCode, status };
+      const { pairingCode, status } = await this.waitForPairingCode(session.id, 15_000);
+      return { sessionId: session.id, pairingCode: pairingCode || undefined, status };
     } catch {
       return { sessionId: session.id, status: updated.status };
     }
+  }
+
+  private async restorePairedSession(sessionId: string): Promise<SessionStatus> {
+    try {
+      await this.sessionService.start(sessionId);
+    } catch (error) {
+      const alreadyStarted =
+        error instanceof BadRequestException && error.message.includes('already started');
+      if (!alreadyStarted) {
+        throw error;
+      }
+    }
+
+    if (await this.waitForReady(sessionId, 45_000)) {
+      return SessionStatus.READY;
+    }
+
+    const session = await this.sessionService.findOne(sessionId);
+    return session.status;
+  }
+
+  private async waitForReady(sessionId: string, timeoutMs: number): Promise<boolean> {
+    const started = Date.now();
+
+    while (Date.now() - started < timeoutMs) {
+      const session = await this.sessionService.findOne(sessionId);
+      if (session.status === SessionStatus.READY) {
+        return true;
+      }
+      if (session.status === SessionStatus.FAILED) {
+        return false;
+      }
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
+    return false;
   }
 
   private async waitForPairingCode(
@@ -47,7 +91,7 @@ export class MobileAuthService {
       const session = await this.sessionService.findOne(sessionId);
 
       if (session.status === SessionStatus.READY) {
-        throw new BadRequestException('Session is already authenticated');
+        return { pairingCode: '', status: SessionStatus.READY };
       }
 
       try {

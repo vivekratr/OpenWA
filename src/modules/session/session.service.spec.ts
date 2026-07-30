@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken, getDataSourceToken } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { SessionService } from './session.service';
 import { Session, SessionStatus } from './entities/session.entity';
 import { EngineFactory } from '../../engine/engine.factory';
@@ -98,6 +99,10 @@ describe('SessionService', () => {
         { provide: EventsGateway, useValue: eventsGateway },
         { provide: WebhookService, useValue: webhookService },
         { provide: HookManager, useValue: hookManager },
+        {
+          provide: ConfigService,
+          useValue: { get: jest.fn().mockReturnValue('./data/sessions') },
+        },
       ],
     }).compile();
 
@@ -249,6 +254,21 @@ describe('SessionService', () => {
         'session:starting',
         expect.objectContaining({ sessionId: 'sess-uuid-1' }),
         expect.any(Object),
+      );
+    });
+
+    it('should not pass pairWithPhoneNumber on restore start', async () => {
+      const session = createMockSession({
+        name: '918208772095',
+        config: { pairWithPhoneNumber: '918208772095' },
+      });
+      (repository.findOne as jest.Mock).mockResolvedValue(session);
+      (repository.update as jest.Mock).mockResolvedValue({ affected: 1 });
+
+      await service.start('sess-uuid-1');
+
+      expect(engineFactory.create).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionId: '918208772095', pairWithPhoneNumber: undefined }),
       );
     });
   });

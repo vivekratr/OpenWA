@@ -207,7 +207,7 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
     });
 
     const updated = await this.findOne(id);
-    return this.start(updated.id);
+    return this.start(updated.id, normalized);
   }
 
   private clearBrowserAuth(sessionName: string): void {
@@ -266,7 +266,7 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
     });
   }
 
-  async start(id: string): Promise<Session> {
+  async start(id: string, pairWithPhoneNumber?: string): Promise<Session> {
     const session = await this.findOne(id);
 
     if (this.engines.has(id)) {
@@ -295,26 +295,22 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
       baseDelay: config?.reconnectBaseDelay ?? 5000,
     });
 
-    await this.initializeEngine(id, session);
+    await this.initializeEngine(id, session, pairWithPhoneNumber);
     return this.findOne(id);
   }
 
-  private resolvePairWithPhoneNumber(session: Session): string | undefined {
-    const fromConfig = (session.config as { pairWithPhoneNumber?: string } | null)?.pairWithPhoneNumber;
-    if (fromConfig) {
-      return fromConfig;
+  private parseSessionConfig(session: Session): Record<string, unknown> {
+    if (typeof session.config === 'string') {
+      return JSON.parse(session.config) as Record<string, unknown>;
     }
-
-    // Mobile-auth sessions are named with the phone number (e.g. 918208772095).
-    if (/^\d{10,15}$/.test(session.name)) {
-      return session.name;
-    }
-
-    return undefined;
+    return { ...(session.config as Record<string, unknown> | null) };
   }
 
-  private async initializeEngine(id: string, session: Session): Promise<void> {
-    const pairWithPhoneNumber = this.resolvePairWithPhoneNumber(session);
+  private async initializeEngine(
+    id: string,
+    session: Session,
+    pairWithPhoneNumber?: string,
+  ): Promise<void> {
 
     this.logger.log(`Initializing engine for session: ${session.name}`, {
       sessionId: id,
@@ -383,12 +379,14 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
           reconnectState.attempts = 0;
         }
 
+        const { pairWithPhoneNumber: _removed, ...restConfig } = this.parseSessionConfig(session);
         void this.sessionRepository.update(id, {
           status: SessionStatus.READY,
           phone,
           pushName,
           connectedAt: new Date(),
           lastActiveAt: new Date(),
+          config: restConfig,
         });
       },
       onMessage: (message): void => {
@@ -437,6 +435,12 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
             source: 'Engine',
           },
         );
+
+        if (reason === 'Authentication failed') {
+          void this.updateStatus(id, SessionStatus.FAILED);
+          this.cancelReconnect(id);
+          return;
+        }
 
         void this.updateStatus(id, SessionStatus.DISCONNECTED);
 
