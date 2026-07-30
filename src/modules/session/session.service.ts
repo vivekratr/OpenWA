@@ -299,13 +299,6 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
     return this.findOne(id);
   }
 
-  private parseSessionConfig(session: Session): Record<string, unknown> {
-    if (typeof session.config === 'string') {
-      return JSON.parse(session.config) as Record<string, unknown>;
-    }
-    return { ...(session.config as Record<string, unknown> | null) };
-  }
-
   private async initializeEngine(
     id: string,
     session: Session,
@@ -379,14 +372,12 @@ export class SessionService implements OnModuleDestroy, OnModuleInit {
           reconnectState.attempts = 0;
         }
 
-        const { pairWithPhoneNumber: _removed, ...restConfig } = this.parseSessionConfig(session);
         void this.sessionRepository.update(id, {
           status: SessionStatus.READY,
           phone,
           pushName,
           connectedAt: new Date(),
           lastActiveAt: new Date(),
-          config: restConfig,
         });
       },
       onMessage: (message): void => {
