@@ -26,7 +26,12 @@ export class MobileAuthService {
 
     if (session.connectedAt) {
       const status = await this.restorePairedSession(session.id);
-      return { sessionId: session.id, status };
+      if (status === SessionStatus.READY) {
+        return { sessionId: session.id, status };
+      }
+      if (this.sessionService.isActive(session.id)) {
+        await this.sessionService.stop(session.id);
+      }
     }
 
     await this.sessionService.startWithPhone(session.id, phoneNumber);
@@ -72,7 +77,7 @@ export class MobileAuthService {
       if (session.status === SessionStatus.READY) {
         return true;
       }
-      if (session.status === SessionStatus.FAILED) {
+      if (session.status === SessionStatus.FAILED || session.status === SessionStatus.QR_READY) {
         return false;
       }
       await new Promise(resolve => setTimeout(resolve, 500));
